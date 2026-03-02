@@ -4,9 +4,10 @@ A simple personal finance tracker. All amounts are in **INR (₹)**. Backend is 
 
 ## Features
 
-- **FastAPI** — REST API for transactions and monthly summary
-- **Streamlit** — Light-mode UI to add transactions (amount, category, date, description)
+- **FastAPI** — REST API for creating transactions and current-month summary
+- **Streamlit** — Tabbed UI: **This Month** (summary), **Add Transaction** (form), **Search** (filter by date range and category)
 - **Supabase** — Stores transactions; optional Row Level Security (RLS)
+- **Fixed categories** — Transactions use one of: Grocery, Dining, Transportation, Utilities, Entertainment, Health, Housing, Personal, Investments, Misc (enforced in UI and API)
 
 ## Prerequisites
 
@@ -74,26 +75,31 @@ uvicorn main:app --reload
 streamlit run app.py
 ```
 
-Opens at http://localhost:8501. Use the form to add transactions (amount, category, date, description).
+Opens at http://localhost:8501. Three tabs:
+
+- **This Month** — Current month total spend and breakdown by category
+- **Add Transaction** — Form: amount, category (dropdown), date, optional description
+- **Search** — Filter by date range and optional category; results shown in a table with total
 
 ## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Basic API info |
-| POST | `/transactions` | Create a transaction |
+| POST | `/transactions` | Create a transaction (category must be one of the allowed list) |
 | GET | `/transactions` | List last 20 transactions |
 | GET | `/summary` | Current month total and spend by category |
 
 ## Project structure
 
 ```
-├── app.py              # Streamlit UI
-├── main.py             # FastAPI app
-├── database.py         # Supabase client
-├── schemas.py          # Pydantic models
+├── app.py                  # Streamlit UI (tabs: This Month, Add, Search)
+├── main.py                 # FastAPI app
+├── database.py             # Supabase client
+├── schemas.py              # Pydantic models (with category validation)
+├── constants.py            # Allowed categories list
 ├── requirements.txt
 ├── supabase_rls_policies.sql
 └── routers/
-    └── transactions.py # Transaction & summary routes
+    └── transactions.py     # Transaction & summary routes
 ```

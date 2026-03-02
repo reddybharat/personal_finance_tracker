@@ -6,8 +6,9 @@ All monetary values in INR (₹).
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from constants import CATEGORIES
 
 # Expected `transactions` columns (verify via Supabase): id, amount, category, transaction_date, description
 
@@ -17,6 +18,16 @@ class TransactionCreate(BaseModel):
     category: str = Field(..., min_length=1)
     transaction_date: date = Field(default_factory=date.today)
     description: Optional[str] = None
+
+    @field_validator("category")
+    @classmethod
+    def category_must_be_allowed(cls, v: str) -> str:
+        v = v.strip()
+        if v not in CATEGORIES:
+            raise ValueError(
+                f"Invalid category. Must be one of: {', '.join(CATEGORIES)}"
+            )
+        return v
 
 
 class TransactionResponse(BaseModel):
