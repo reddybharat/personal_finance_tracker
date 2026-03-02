@@ -7,14 +7,13 @@ import streamlit as st
 from constants import CATEGORIES
 from database import get_supabase
 from validations import validate_amount, validate_category, validate_transaction_date
-from ui_common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
 
 REQUIRED_LABEL = "<span style='color: red'>*</span>"
 
 
 def render_add_transaction() -> None:
-    st.subheader("Add")
-    st.caption("Amount in ₹ (INR)")
+    st.subheader("Add Transaction")
     with st.form("transaction_form", clear_on_submit=True):
         st.markdown(f"Amount (₹) {REQUIRED_LABEL}", unsafe_allow_html=True)
         amount = st.number_input(

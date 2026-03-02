@@ -6,7 +6,7 @@ import streamlit as st
 
 from constants import CATEGORIES
 from database import get_supabase
-from ui_common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
 
 
 def _show_pagination_footer(total_count: int, page_size: int, current_page: int) -> None:

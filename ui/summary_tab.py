@@ -5,7 +5,7 @@ from datetime import date
 import streamlit as st
 
 from database import get_supabase
-from ui_common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
 
 
 def render_summary() -> None:
