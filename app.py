@@ -1,7 +1,7 @@
 """
 Simple Streamlit UI to add transactions to the Personal Finance Tracker.
 Light mode. Inserts into Supabase transactions table.
-Tabs: This Month, Add Transaction, Search.
+Tabs: Summary, Add Transaction, Search.
 """
 
 import streamlit as st
@@ -9,18 +9,9 @@ from datetime import date
 
 from database import get_supabase
 from constants import CATEGORIES
+from validations import validate_amount, validate_category, validate_transaction_date
 
 st.set_page_config(page_title="Personal Finance Tracker", page_icon="💰", layout="centered")
-
-
-def _validate_category(category: str) -> None:
-    """Raise ValueError if category is not in CATEGORIES."""
-    if not category or not (c := category.strip()):
-        raise ValueError("Please select a category.")
-    if c not in CATEGORIES:
-        raise ValueError(
-            f"Invalid category: '{c}'. Must be one of: {', '.join(CATEGORIES)}."
-        )
 
 
 SUPABASE_ERROR_MSG = (
@@ -36,8 +27,8 @@ def _is_supabase_connection_error(err: str) -> bool:
     return "525" in err or "SSL handshake" in err or "JSON could not be generated" in err
 
 
-def _render_this_month():
-    st.subheader("This month")
+def _render_summary():
+    st.subheader("Summary")
     try:
         today = date.today()
         start = today.replace(day=1).isoformat()
@@ -64,6 +55,31 @@ def _render_this_month():
                 st.write(f"• **{cat}**: ₹{val:,.2f}")
         else:
             st.caption("No transactions this month yet.")
+
+        # Latest 5–7 transactions
+        st.subheader("Latest transactions")
+        latest_response = (
+            get_supabase()
+            .table("transactions")
+            .select("id, amount, category, transaction_date, description")
+            .order("transaction_date", desc=True)
+            .limit(7)
+            .execute()
+        )
+        latest_rows = latest_response.data or []
+        if not latest_rows:
+            st.caption("No transactions yet.")
+        else:
+            table_data = [
+                {
+                    "Date": r.get("transaction_date", ""),
+                    "Amount (₹)": f"₹{float(r.get('amount', 0)):,.2f}",
+                    "Category": r.get("category", ""),
+                    "Description": r.get("description") or "—",
+                }
+                for r in latest_rows
+            ]
+            st.dataframe(table_data, width='stretch', hide_index=True)
     except ValueError:
         st.warning("Database not configured. Set SUPABASE_URL and SUPABASE_KEY in .env to see summary.")
     except Exception as e:
@@ -73,58 +89,81 @@ def _render_this_month():
         else:
             st.warning(f"Could not load summary: {err[:200]}" + ("…" if len(err) > 200 else ""))
 
+REQUIRED_LABEL = "<span style='color: red'>*</span>"
+
+
 def _render_add_transaction():
     st.subheader("Add")
     st.caption("Amount in ₹ (INR)")
     with st.form("transaction_form", clear_on_submit=True):
+        st.markdown(f"Amount (₹) {REQUIRED_LABEL}", unsafe_allow_html=True)
         amount = st.number_input(
             "Amount (₹)",
             min_value=0.00,
             step=100.00,
             format="%.2f",
             help="Enter amount in INR",
+            label_visibility="collapsed",
         )
-        category = st.selectbox("Category", options=CATEGORIES)
-        transaction_date = st.date_input("Date", value=date.today())
+        st.markdown(f"Category {REQUIRED_LABEL}", unsafe_allow_html=True)
+        category = st.selectbox(
+            "Category",
+            options=CATEGORIES,
+            index=None,
+            placeholder="Select category",
+            label_visibility="collapsed",
+        )
+        st.markdown(f"Date {REQUIRED_LABEL}", unsafe_allow_html=True)
+        transaction_date = st.date_input("Date", value=date.today(), label_visibility="collapsed")
         description = st.text_input("Description (optional)", placeholder="Short note")
         submitted = st.form_submit_button("Save transaction")
 
     if submitted:
+        errors = []
         try:
-            _validate_category(category)
+            validate_amount(amount)
         except ValueError as e:
-            st.error(str(e))
+            errors.append(str(e))
+        try:
+            validate_category(category)
+        except ValueError as e:
+            errors.append(str(e))
+        try:
+            validate_transaction_date(transaction_date)
+        except ValueError as e:
+            errors.append(str(e))
+
+        if errors:
+            for msg in errors:
+                st.error(msg)
         else:
-            if amount <= 0:
-                st.error("Amount must be greater than 0.")
-            else:
-                try:
-                    supabase = get_supabase()
-                    row = {
-                        "amount": float(amount),
-                        "category": category,
-                        "transaction_date": transaction_date.isoformat(),
-                        "description": description.strip() or None,
-                    }
-                    response = supabase.table("transactions").insert(row).execute()
-                    if response.data:
-                        st.success(f"Saved: ₹{amount:,.2f} — {category} on {transaction_date}")
-                    else:
-                        st.error("Insert failed. Check your database.")
-                except ValueError as e:
-                    st.error(str(e))
-                except Exception as e:
-                    err = str(e)
-                    if _is_supabase_connection_error(err):
-                        st.error(SUPABASE_ERROR_MSG)
-                    elif "42501" in err or "row-level security policy" in err.lower():
-                        st.error(
-                            "**Row Level Security (RLS) is blocking this.** Add policies in Supabase:\n\n"
-                            "1. Open [Supabase Dashboard](https://supabase.com/dashboard) → your project → **SQL Editor**.\n"
-                            "2. Run the SQL from **`supabase_rls_policies.sql`** in this project (or create policies that allow INSERT/SELECT on `transactions` for your role)."
-                        )
-                    else:
-                        st.error(f"Error: {err}")
+            try:
+                supabase = get_supabase()
+                row = {
+                    "amount": float(amount),
+                    "category": category.strip(),
+                    "transaction_date": transaction_date.isoformat(),
+                    "description": description.strip() or None,
+                }
+                response = supabase.table("transactions").insert(row).execute()
+                if response.data:
+                    st.success(f"Saved: ₹{amount:,.2f} — {category} on {transaction_date}")
+                else:
+                    st.error("Insert failed. Check your database.")
+            except ValueError as e:
+                st.error(str(e))
+            except Exception as e:
+                err = str(e)
+                if _is_supabase_connection_error(err):
+                    st.error(SUPABASE_ERROR_MSG)
+                elif "42501" in err or "row-level security policy" in err.lower():
+                    st.error(
+                        "**Row Level Security (RLS) is blocking this.** Add policies in Supabase:\n\n"
+                        "1. Open [Supabase Dashboard](https://supabase.com/dashboard) → your project → **SQL Editor**.\n"
+                        "2. Run the SQL from **`supabase_rls_policies.sql`** in this project (or create policies that allow INSERT/SELECT on `transactions` for your role)."
+                    )
+                else:
+                    st.error(f"Error: {err}")
 
 def _render_search():
     st.subheader("Search transactions")
@@ -176,7 +215,7 @@ def _render_search():
                         }
                         for r in rows
                     ]
-                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    st.dataframe(table_data, width='stretch', hide_index=True)
     except ValueError:
         st.warning("Database not configured. Set SUPABASE_URL and SUPABASE_KEY in .env to search.")
     except Exception as e:
@@ -186,9 +225,9 @@ def _render_search():
         else:
             st.warning(f"Could not search: {err[:200]}" + ("…" if len(err) > 200 else ""))
 
-tab1, tab2, tab3 = st.tabs(["This Month", "Add", "Search"])
+tab1, tab2, tab3 = st.tabs(["Summary", "Add", "Search"])
 with tab1:
-    _render_this_month()
+    _render_summary()
 with tab2:
     _render_add_transaction()
 with tab3:

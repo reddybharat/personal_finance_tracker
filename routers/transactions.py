@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from database import get_supabase
 from schemas import TransactionCreate, TransactionResponse
+from validations import validate_transaction_date
 
 router = APIRouter(prefix="", tags=["transactions"])
 
@@ -15,6 +16,10 @@ router = APIRouter(prefix="", tags=["transactions"])
 @router.post("/transactions", response_model=TransactionResponse)
 def create_transaction(payload: TransactionCreate) -> TransactionResponse:
     """Insert a new transaction. Column names: amount, category, transaction_date, description."""
+    try:
+        validate_transaction_date(payload.transaction_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     row = {
         "amount": float(payload.amount),
         "category": payload.category.strip(),

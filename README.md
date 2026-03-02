@@ -5,9 +5,10 @@ A simple personal finance tracker. All amounts are in **INR (₹)**. Backend is 
 ## Features
 
 - **FastAPI** — REST API for creating transactions and current-month summary
-- **Streamlit** — Tabbed UI: **This Month** (summary), **Add Transaction** (form), **Search** (filter by date range and category)
+- **Streamlit** — Tabbed UI: **Summary** (current month + latest transactions), **Add** (form), **Search** (filter by date range, category, max results)
 - **Supabase** — Stores transactions; optional Row Level Security (RLS)
 - **Fixed categories** — Transactions use one of: Grocery, Dining, Transportation, Utilities, Entertainment, Health, Housing, Personal, Investments, Misc (enforced in UI and API)
+- **Validations** — Shared rules in `validations.py`: amount must be > 0, category required, transaction date cannot be in the future (enforced in UI and API)
 
 ## Prerequisites
 
@@ -77,27 +78,28 @@ streamlit run app.py
 
 Opens at http://localhost:8501. Three tabs:
 
-- **This Month** — Current month total spend and breakdown by category
-- **Add Transaction** — Form: amount, category (dropdown), date, optional description
-- **Search** — Filter by date range and optional category; results shown in a table with total
+- **Summary** — Current month total spend and breakdown by category; plus a table of the latest 5–7 transactions
+- **Add** — Form: amount, category (required; no default), date (today or past only), optional description; required fields marked with a red asterisk
+- **Search** — Filter by date range, optional category, and max results (5–100); results shown in a table
 
 ## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Basic API info |
-| POST | `/transactions` | Create a transaction (category must be one of the allowed list) |
+| POST | `/transactions` | Create a transaction (amount > 0, category required, date not in future) |
 | GET | `/transactions` | List last 20 transactions |
 | GET | `/summary` | Current month total and spend by category |
 
 ## Project structure
 
 ```
-├── app.py                  # Streamlit UI (tabs: This Month, Add, Search)
+├── app.py                  # Streamlit UI (tabs: Summary, Add, Search)
 ├── main.py                 # FastAPI app
 ├── database.py             # Supabase client
 ├── schemas.py              # Pydantic models (with category validation)
 ├── constants.py            # Allowed categories list
+├── validations.py          # Shared validations (amount, category, date)
 ├── requirements.txt
 ├── supabase_rls_policies.sql
 └── routers/
