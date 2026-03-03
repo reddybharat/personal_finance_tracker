@@ -15,3 +15,18 @@ ON public.transactions
 FOR SELECT
 TO anon
 USING (true);
+
+-- Allow anyone using the anon key to update rows (for edit in Search tab)
+CREATE POLICY "Allow anon update on transactions"
+ON public.transactions
+FOR UPDATE
+TO anon
+USING (true)
+WITH CHECK (true);
+
+-- Allow anyone using the anon key to delete rows (for delete in Search tab)
+CREATE POLICY "Allow anon delete on transactions"
+ON public.transactions
+FOR DELETE
+TO anon
+USING (true);

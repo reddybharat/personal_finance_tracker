@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException
 
 from database import get_supabase
-from schemas import TransactionCreate, TransactionResponse
+from schemas import TransactionCreate, TransactionResponse, TransactionUpdate
 from validations import validate_transaction_date
 
 router = APIRouter(prefix="", tags=["transactions"])
@@ -30,7 +30,10 @@ def create_transaction(payload: TransactionCreate) -> TransactionResponse:
     data = response.data
     if not data:
         raise HTTPException(status_code=500, detail="Insert failed")
-    record = data[0]
+    return _record_to_response(data[0])
+
+
+def _record_to_response(record: dict) -> TransactionResponse:
     return TransactionResponse(
         id=str(record["id"]),
         amount=float(record["amount"]),
@@ -38,6 +41,68 @@ def create_transaction(payload: TransactionCreate) -> TransactionResponse:
         transaction_date=date.fromisoformat(record["transaction_date"]),
         description=record.get("description"),
     )
+
+
+@router.get("/transactions/{transaction_id}", response_model=TransactionResponse)
+def get_transaction(transaction_id: str) -> TransactionResponse:
+    """Fetch a single transaction by id."""
+    response = (
+        get_supabase()
+        .table("transactions")
+        .select("id, amount, category, transaction_date, description")
+        .eq("id", transaction_id)
+        .execute()
+    )
+    data = response.data or []
+    if not data:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return _record_to_response(data[0])
+
+
+@router.patch("/transactions/{transaction_id}", response_model=TransactionResponse)
+def update_transaction(transaction_id: str, payload: TransactionUpdate) -> TransactionResponse:
+    """Update a transaction by id. Only provided fields are updated."""
+    payload_dict = payload.model_dump(exclude_unset=True)
+    if not payload_dict:
+        return get_transaction(transaction_id)
+    if "transaction_date" in payload_dict:
+        try:
+            validate_transaction_date(payload_dict["transaction_date"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if "amount" in payload_dict:
+        payload_dict["amount"] = float(payload_dict["amount"])
+    if "transaction_date" in payload_dict:
+        payload_dict["transaction_date"] = payload_dict["transaction_date"].isoformat()
+    if "category" in payload_dict and payload_dict["category"] is not None:
+        payload_dict["category"] = payload_dict["category"].strip()
+
+    response = (
+        get_supabase()
+        .table("transactions")
+        .update(payload_dict)
+        .eq("id", transaction_id)
+        .execute()
+    )
+    data = response.data or []
+    if not data:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return _record_to_response(data[0])
+
+
+@router.delete("/transactions/{transaction_id}", status_code=204)
+def delete_transaction(transaction_id: str) -> None:
+    """Delete a transaction by id."""
+    response = (
+        get_supabase()
+        .table("transactions")
+        .delete()
+        .eq("id", transaction_id)
+        .execute()
+    )
+    # Supabase delete returns the deleted row(s); if nothing was deleted, we treat as 404
+    if not (response.data and len(response.data) > 0):
+        raise HTTPException(status_code=404, detail="Transaction not found")
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])
@@ -50,18 +115,7 @@ def list_transactions() -> list[TransactionResponse]:
         .limit(20)
         .execute()
     )
-    out = []
-    for record in response.data or []:
-        out.append(
-            TransactionResponse(
-                id=str(record["id"]),
-                amount=float(record["amount"]),
-                category=record["category"],
-                transaction_date=date.fromisoformat(record["transaction_date"]),
-                description=record.get("description"),
-            )
-        )
-    return out
+    return [_record_to_response(record) for record in (response.data or [])]
 
 
 @router.get("/summary")

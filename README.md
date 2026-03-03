@@ -4,8 +4,8 @@ A simple personal finance tracker. All amounts are in **INR (₹)**. Backend is 
 
 ## Features
 
-- **FastAPI** — REST API for creating transactions and current-month summary
-- **Streamlit** — Tabbed UI: **Summary** (current month + latest transactions), **Add** (form), **Search** (filter by date range, category, max results)
+- **FastAPI** — REST API for transactions: create, list, get by id, update (PATCH), delete, and current-month summary
+- **Streamlit** — Tabbed UI: **Summary** (current month + latest transactions), **Add** (form), **Search** (filter by date range/category, pagination, **edit** and **delete** per transaction)
 - **Supabase** — Stores transactions; optional Row Level Security (RLS)
 - **Fixed categories** — Transactions use one of: Grocery, Dining, Transportation, Utilities, Entertainment, Health, Housing, Personal, Investments, Misc (enforced in UI and API)
 - **Validations** — Shared rules in `validations.py`: amount must be > 0, category required, transaction date cannot be in the future (enforced in UI and API)
@@ -57,7 +57,7 @@ Get these from Supabase Dashboard → Project Settings → API.
 
 ### 4. Row Level Security (optional)
 
-If your table has RLS enabled, run the policies in **Supabase Dashboard → SQL Editor** using `supabase_rls_policies.sql` so the app can insert and select from `transactions`.
+If your table has RLS enabled, run the policies in **Supabase Dashboard → SQL Editor** using `supabase_rls_policies.sql` so the app can insert, select, update, and delete from `transactions`.
 
 ## Running the app
 

@@ -1,4 +1,4 @@
-"""Search tab UI with pagination for the Personal Finance Tracker Streamlit app."""
+"""Search tab UI with pagination and edit/delete for the Personal Finance Tracker Streamlit app."""
 
 from datetime import date
 
@@ -7,6 +7,7 @@ import streamlit as st
 from constants import CATEGORIES
 from database import get_supabase
 from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from validations import validate_amount, validate_category, validate_transaction_date
 
 
 def _show_pagination_footer(total_count: int, page_size: int, current_page: int) -> None:
@@ -25,6 +26,95 @@ def _show_pagination_footer(total_count: int, page_size: int, current_page: int)
         st.rerun()
 
 
+def _render_edit_form(row: dict) -> None:
+    """Show edit form for one transaction; on submit updates via Supabase and clears state."""
+    row_id = row.get("id")
+    if not row_id:
+        return
+    with st.form(key="edit_txn_form"):
+        st.caption("Edit transaction")
+        amount = st.number_input(
+            "Amount (₹)",
+            min_value=0.01,
+            value=float(row.get("amount", 0)),
+            step=0.01,
+            format="%.2f",
+            key="edit_amount",
+        )
+        category = st.selectbox(
+            "Category",
+            options=CATEGORIES,
+            index=CATEGORIES.index(row["category"]) if row.get("category") in CATEGORIES else 0,
+            key="edit_category",
+        )
+        txn_date = st.date_input(
+            "Date",
+            value=date.fromisoformat(row["transaction_date"]) if isinstance(row.get("transaction_date"), str) else date.today(),
+            key="edit_date",
+        )
+        description = st.text_input(
+            "Description (optional)",
+            value=row.get("description") or "",
+            key="edit_desc",
+        )
+        col1, col2, _ = st.columns([1, 1, 2])
+        with col1:
+            submitted = st.form_submit_button("Save")
+        with col2:
+            cancel = st.form_submit_button("Cancel")
+        if cancel:
+            if "editing_transaction" in st.session_state:
+                del st.session_state.editing_transaction
+            st.rerun()
+        if submitted:
+            try:
+                validate_amount(amount)
+                validate_category(category)
+                validate_transaction_date(txn_date)
+            except ValueError as e:
+                st.error(str(e))
+                return
+            try:
+                get_supabase().table("transactions").update({
+                    "amount": amount,
+                    "category": category.strip(),
+                    "transaction_date": txn_date.isoformat(),
+                    "description": (description or "").strip() or None,
+                }).eq("id", row_id).execute()
+                if "editing_transaction" in st.session_state:
+                    del st.session_state.editing_transaction
+                st.success("Transaction updated.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Update failed: {str(e)[:200]}")
+
+
+def _render_delete_confirm(row: dict) -> None:
+    """Show delete confirmation; on confirm deletes via Supabase and clears state."""
+    row_id = row.get("id")
+    if not row_id:
+        return
+    amt = row.get("amount", 0)
+    cat = row.get("category", "")
+    st.warning(f"Delete this transaction? **₹{float(amt):,.2f}** — {cat}")
+    col1, col2, _ = st.columns([1, 1, 2])
+    with col1:
+        if st.button("Confirm delete", type="primary", key="confirm_del"):
+            try:
+                get_supabase().table("transactions").delete().eq("id", row_id).execute()
+                if "deleting_transaction" in st.session_state:
+                    del st.session_state.deleting_transaction
+                st.success("Transaction deleted.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {str(e)[:200]}")
+    with col2:
+        if st.button("Cancel", key="cancel_del"):
+            if "deleting_transaction" in st.session_state:
+                del st.session_state.deleting_transaction
+            st.rerun()
+
+
 def render_search() -> None:
     st.subheader("Search transactions")
     # Pagination state: which page we're on (1-based). Reset when user clicks "Search".
@@ -32,6 +122,11 @@ def render_search() -> None:
         st.session_state.search_page = 1
     if "search_results_total" not in st.session_state:
         st.session_state.search_results_total = None  # total count from last query
+    # Edit/delete: which transaction is being edited or pending delete (full row dict or id)
+    if "editing_transaction" not in st.session_state:
+        st.session_state.editing_transaction = None
+    if "deleting_transaction" not in st.session_state:
+        st.session_state.deleting_transaction = None
 
     try:
         col11, col12, col13 = st.columns([1, 1, 1])
@@ -96,6 +191,14 @@ def render_search() -> None:
                         st.session_state.search_page = total_pages
                         st.rerun()
 
+                    # If we're editing or deleting, show the form/confirm at top
+                    if st.session_state.editing_transaction:
+                        _render_edit_form(st.session_state.editing_transaction)
+                        st.divider()
+                    if st.session_state.deleting_transaction:
+                        _render_delete_confirm(st.session_state.deleting_transaction)
+                        st.divider()
+
                     start_one = offset_start + 1
                     end_one = min(offset_start + len(rows), total_count)
                     st.caption(f"Showing **{start_one}–{end_one}** of **{total_count}** transactions")
@@ -104,16 +207,38 @@ def render_search() -> None:
                         st.caption(f"Page total: ₹{total_amt:,.2f}")
                     else:
                         st.caption(f"Total: ₹{total_amt:,.2f}")
-                    table_data = [
-                        {
-                            "Date": r.get("transaction_date", ""),
-                            "Amount (₹)": f"₹{float(r.get('amount', 0)):,.2f}",
-                            "Category": r.get("category", ""),
-                            "Description": r.get("description") or "—",
-                        }
-                        for r in rows
-                    ]
-                    st.dataframe(table_data, width="stretch", hide_index=True)
+
+                    header_cols = st.columns([2, 1, 1, 2, 2])
+                    headers = ["Date", "Amount", "Category", "Description", "Actions"]
+                    for c, h in zip(header_cols, headers):
+                        c.markdown(f"**{h}**")
+
+                    # One row per transaction with Edit / Delete buttons
+                    for r in rows:
+                        row_id = r.get("id")
+                        if not row_id:
+                            continue
+                        cols = st.columns([2, 1, 1, 2, 1, 1])
+                        with cols[0]:
+                            st.text(r.get("transaction_date", ""))
+                        with cols[1]:
+                            st.text(f"₹{float(r.get('amount', 0)):,.2f}")
+                        with cols[2]:
+                            st.text(r.get("category", ""))
+                        with cols[3]:
+                            st.text((r.get("description") or "—")[:40] + ("…" if (r.get("description") or "") and len(r.get("description", "") or "") > 40 else ""))
+                        with cols[4]:
+                            edit_clicked = st.button("Edit", key=f"edit_{row_id}")
+                            if edit_clicked:
+                                st.session_state.editing_transaction = r
+                                st.session_state.deleting_transaction = None
+                                st.rerun()
+                        with cols[5]:
+                            delete_clicked = st.button("Delete", key=f"del_{row_id}")
+                            if delete_clicked:
+                                st.session_state.deleting_transaction = r
+                                st.session_state.editing_transaction = None
+                                st.rerun()
 
                     # Render Prev/Next below the table when we have results
                     if total_count and total_count > 0:
