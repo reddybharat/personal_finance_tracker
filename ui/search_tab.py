@@ -1,6 +1,6 @@
 """Search tab UI with pagination and edit/delete for the Personal Finance Tracker Streamlit app."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 
@@ -13,7 +13,7 @@ from validations import validate_amount, validate_category, validate_transaction
 def _show_pagination_footer(total_count: int, page_size: int, current_page: int) -> None:
     """Render Prev/Next below the results; on click updates session state and reruns."""
     total_pages = max(1, (total_count + page_size - 1) // page_size)
-    col_prev, _, col_next = st.columns([1, 2, 1])
+    col_prev, col_next, _ = st.columns([1, 1, 2])
     with col_prev:
         prev_clicked = st.button("← Prev", disabled=(current_page <= 1), key="search_prev")
     with col_next:
@@ -127,13 +127,46 @@ def render_search() -> None:
         st.session_state.editing_transaction = None
     if "deleting_transaction" not in st.session_state:
         st.session_state.deleting_transaction = None
+    # Sort: column and direction for search results
+    if "search_sort_column" not in st.session_state:
+        st.session_state.search_sort_column = "transaction_date"
+    if "search_sort_desc" not in st.session_state:
+        st.session_state.search_sort_desc = True
+    if "search_start_date" not in st.session_state:
+        st.session_state.search_start_date = date.today().replace(day=1)
+    if "search_end_date" not in st.session_state:
+        st.session_state.search_end_date = date.today()
 
     try:
+        today = date.today()
+        qcol1, qcol2, qcol3, _ = st.columns([1, 1, 1, 2])
+        with qcol1:
+            if st.button("Today", use_container_width=True, key="quick_today"):
+                st.session_state.search_start_date = today
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+        with qcol2:
+            if st.button("Last 7 days", use_container_width=True, key="quick_7"):
+                st.session_state.search_start_date = today - timedelta(days=6)
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+        with qcol3:
+            if st.button("This month", use_container_width=True, key="quick_month"):
+                st.session_state.search_start_date = today.replace(day=1)
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+
         col11, col12, col13 = st.columns([1, 1, 1])
         with col11:
-            start_date = st.date_input("From Date", value=date.today().replace(day=1))
+            start_date = st.date_input("From Date", key="search_start_date")
         with col12:
-            end_date = st.date_input("To Date", value=date.today())
+            end_date = st.date_input("To Date", key="search_end_date")
 
         col21, col22, col23 = st.columns([1, 1, 1])
         with col21:
@@ -144,6 +177,40 @@ def render_search() -> None:
             )
         with col22:
             page_size = st.number_input("Per page", min_value=5, max_value=50, value=10, step=5)
+
+        # Sort options: label -> Supabase column name
+        sort_options = [
+            ("Date", "transaction_date"),
+            ("Amount", "amount"),
+        ]
+        sort_labels = [opt[0] for opt in sort_options]
+        # Resolve current label from session state column
+        current_col = st.session_state.search_sort_column
+        current_index = next(
+            (i for i, (_, col) in enumerate(sort_options) if col == current_col),
+            0,
+        )
+        col31, col32 = st.columns([1, 1])
+        with col31:
+            sort_label = st.selectbox(
+                "Sort by",
+                options=sort_labels,
+                index=current_index,
+                key="search_sort_by",
+            )
+            sort_column = next(col for label, col in sort_options if label == sort_label)
+        with col32:
+            sort_desc = st.radio(
+                "Order",
+                options=["Descending", "Ascending"],
+                index=0 if st.session_state.search_sort_desc else 1,
+                horizontal=True,
+                key="search_sort_order",
+            )
+            sort_desc_bool = sort_desc == "Descending"
+        # Persist sort in session state for the query
+        st.session_state.search_sort_column = sort_column
+        st.session_state.search_sort_desc = sort_desc_bool
 
         if start_date > end_date:
             st.error("From date must be on or before To date.")
@@ -161,13 +228,15 @@ def render_search() -> None:
                 offset_start = (page - 1) * page_size
                 offset_end = offset_start + page_size - 1
 
+                sort_col = st.session_state.search_sort_column
+                sort_desc = st.session_state.search_sort_desc
                 query = (
                     get_supabase()
                     .table("transactions")
                     .select("id, amount, category, transaction_date, description", count="exact")
                     .gte("transaction_date", start_date.isoformat())
                     .lte("transaction_date", end_date.isoformat())
-                    .order("transaction_date", desc=True)
+                    .order(sort_col, desc=sort_desc)
                     .range(offset_start, offset_end)
                 )
                 if category and category != "All":
@@ -202,23 +271,18 @@ def render_search() -> None:
                     start_one = offset_start + 1
                     end_one = min(offset_start + len(rows), total_count)
                     st.caption(f"Showing **{start_one}–{end_one}** of **{total_count}** transactions")
-                    total_amt = sum(float(r.get("amount", 0)) for r in rows)
-                    if len(rows) < total_count:
-                        st.caption(f"Page total: ₹{total_amt:,.2f}")
-                    else:
-                        st.caption(f"Total: ₹{total_amt:,.2f}")
 
-                    header_cols = st.columns([2, 1, 1, 2, 2])
-                    headers = ["Date", "Amount", "Category", "Description", "Actions"]
+                    header_cols = st.columns([1, 1, 1, 2, 2])
+                    headers = ["Date", "Amount", "Category", "Description", ""]
                     for c, h in zip(header_cols, headers):
                         c.markdown(f"**{h}**")
 
-                    # One row per transaction with Edit / Delete buttons
+                    # One row per transaction with Edit / Delete buttons in one Actions column
                     for r in rows:
                         row_id = r.get("id")
                         if not row_id:
                             continue
-                        cols = st.columns([2, 1, 1, 2, 1, 1])
+                        cols = st.columns([1, 1, 1, 2, 2])
                         with cols[0]:
                             st.text(r.get("transaction_date", ""))
                         with cols[1]:
@@ -228,17 +292,19 @@ def render_search() -> None:
                         with cols[3]:
                             st.text((r.get("description") or "—")[:40] + ("…" if (r.get("description") or "") and len(r.get("description", "") or "") > 40 else ""))
                         with cols[4]:
-                            edit_clicked = st.button("Edit", key=f"edit_{row_id}")
-                            if edit_clicked:
-                                st.session_state.editing_transaction = r
-                                st.session_state.deleting_transaction = None
-                                st.rerun()
-                        with cols[5]:
-                            delete_clicked = st.button("Delete", key=f"del_{row_id}")
-                            if delete_clicked:
-                                st.session_state.deleting_transaction = r
-                                st.session_state.editing_transaction = None
-                                st.rerun()
+                            b1, b2 = st.columns(2)
+                            with b1:
+                                edit_clicked = st.button("Edit", key=f"edit_{row_id}")
+                                if edit_clicked:
+                                    st.session_state.editing_transaction = r
+                                    st.session_state.deleting_transaction = None
+                                    st.rerun()
+                            with b2:
+                                delete_clicked = st.button("Delete", key=f"del_{row_id}")
+                                if delete_clicked:
+                                    st.session_state.deleting_transaction = r
+                                    st.session_state.editing_transaction = None
+                                    st.rerun()
 
                     # Render Prev/Next below the table when we have results
                     if total_count and total_count > 0:
