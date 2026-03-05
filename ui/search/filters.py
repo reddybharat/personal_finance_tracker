@@ -5,6 +5,7 @@ from datetime import date, timedelta
 import streamlit as st
 
 from constants import CATEGORIES
+from services.csv_transactions import export_transactions_csv
 
 
 def render_search_filters():
@@ -103,9 +104,31 @@ def render_search_filters():
     st.session_state.search_sort_column = sort_column
     st.session_state.search_sort_desc = sort_desc
 
-    search_clicked = st.button("Search")
-    if search_clicked:
-        st.session_state.search_page = 1
+    # Search and Export to CSV side by side; export only after a search has been run
+    col_search, col_export = st.columns(2)
+    with col_search:
+        search_clicked = st.button("Search")
+        if search_clicked:
+            st.session_state.search_page = 1
+    with col_export:
+        # Show Export as soon as user clicks Search (same run) or after results are in
+        search_has_run = (
+            search_clicked
+            or st.session_state.get("search_results_total") is not None
+        )
+        if search_has_run:
+            csv_data = export_transactions_csv(start_date, end_date, category)
+            if csv_data:
+                st.download_button(
+                    "Export to CSV",
+                    data=csv_data,
+                    file_name=f"transactions_{start_date.isoformat()}_{end_date.isoformat()}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="search_export_csv",
+                )
+            else:
+                st.caption("No data to export for current filters.")
 
     return start_date, end_date, category, page_size, sort_column, sort_desc, search_clicked
 
