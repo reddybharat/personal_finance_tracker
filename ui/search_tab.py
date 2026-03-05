@@ -1,6 +1,6 @@
 """Search tab UI with pagination and edit/delete for the Personal Finance Tracker Streamlit app."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 
@@ -132,13 +132,41 @@ def render_search() -> None:
         st.session_state.search_sort_column = "transaction_date"
     if "search_sort_desc" not in st.session_state:
         st.session_state.search_sort_desc = True
+    if "search_start_date" not in st.session_state:
+        st.session_state.search_start_date = date.today().replace(day=1)
+    if "search_end_date" not in st.session_state:
+        st.session_state.search_end_date = date.today()
 
     try:
+        today = date.today()
+        qcol1, qcol2, qcol3, _ = st.columns([1, 1, 1, 2])
+        with qcol1:
+            if st.button("Today", use_container_width=True, key="quick_today"):
+                st.session_state.search_start_date = today
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+        with qcol2:
+            if st.button("Last 7 days", use_container_width=True, key="quick_7"):
+                st.session_state.search_start_date = today - timedelta(days=6)
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+        with qcol3:
+            if st.button("This month", use_container_width=True, key="quick_month"):
+                st.session_state.search_start_date = today.replace(day=1)
+                st.session_state.search_end_date = today
+                st.session_state.search_page = 1
+                st.session_state.search_results_total = 0
+                st.rerun()
+
         col11, col12, col13 = st.columns([1, 1, 1])
         with col11:
-            start_date = st.date_input("From Date", value=date.today().replace(day=1))
+            start_date = st.date_input("From Date", key="search_start_date")
         with col12:
-            end_date = st.date_input("To Date", value=date.today())
+            end_date = st.date_input("To Date", key="search_end_date")
 
         col21, col22, col23 = st.columns([1, 1, 1])
         with col21:
