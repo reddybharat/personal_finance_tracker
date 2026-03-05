@@ -6,9 +6,9 @@ Tabs: Summary, Add Transaction, Search.
 
 import streamlit as st
 
-from ui.summary_tab import render_summary
-from ui.add_txn_tab import render_add_transaction
-from ui.search_tab import render_search
+from ui.tabs.summary_tab import render_summary
+from ui.tabs.add_txn_tab import render_add_transaction
+from ui.tabs.search_tab import render_search
 
 st.set_page_config(page_title="Personal Finance Tracker", page_icon="💰", layout="centered")
 
