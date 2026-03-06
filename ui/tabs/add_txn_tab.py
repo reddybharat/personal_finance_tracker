@@ -7,6 +7,7 @@ import streamlit as st
 from constants import CATEGORIES
 from database import get_supabase
 from validations import validate_amount, validate_category, validate_transaction_date
+from ui.add.import_csv_section import render_import_csv_section
 from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
 
 REQUIRED_LABEL = "<span style='color: red'>*</span>"
@@ -83,3 +84,9 @@ def render_add_transaction() -> None:
                     )
                 else:
                     st.error(f"Error: {err}")
+
+    # Import from CSV (template + file upload + import)
+    try:
+        render_import_csv_section()
+    except ValueError:
+        pass  # DB not configured; expander still visible but import will fail
