@@ -9,7 +9,7 @@ A simple personal finance tracker. All amounts are in **INR (₹)**. Backend is 
 - **Chat / Finance Assistant** — Natural language questions about your transactions. Uses a LangGraph SQL agent (Gemini LLM) with tools: list tables, get schema, execute read-only SQL. Answers summarize spending, breakdowns by category, and similar queries.
 - **Import from CSV** — In the **Add** tab: download a template (correct headers + example rows), upload a CSV, and bulk-import transactions. Columns: `transaction_date` (YYYY-MM-DD), `category`, `amount`, `description` (optional). Category must be one of the fixed list; validation and row-level errors are shown.
 - **Export to CSV** — In the **Search** tab: after you run a search, an **Export to CSV** button appears next to the Search button and downloads all transactions matching the current filters (date range and category).
-- **Supabase** — Stores transactions; optional Row Level Security (RLS)
+- **Database** — Connects directly to PostgreSQL via `DATABASE_URL` (no RLS required for the app)
 - **Fixed categories** — Transactions use one of: Grocery, Dining, Transportation, Utilities, Entertainment, Health, Housing, Personal, Investments, Misc (enforced in UI and API)
 - **Validations** — Shared rules in `validations.py`: amount must be > 0, category required, transaction date cannot be in the future (enforced in UI and API)
 

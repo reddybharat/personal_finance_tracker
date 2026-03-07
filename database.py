@@ -1,33 +1,75 @@
 """
-Supabase client initialization.
-Loads SUPABASE_URL and SUPABASE_KEY from .env.
+Direct PostgreSQL connection via DATABASE_URL.
+Provides get_connection() and helpers for parameterized SQL (SELECT, INSERT, UPDATE, DELETE).
 """
 
 import os
-from typing import Optional
+from contextlib import contextmanager
+from typing import Any, Optional
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-from supabase import Client, create_client
 
 load_dotenv()
 
-_SUPABASE_URL = os.getenv("SUPABASE_URL")
-_SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-_supabase: Optional[Client] = None
+_DATABASE_URL: Optional[str] = None
 
 
-def _get_supabase() -> Client:
-    global _supabase
-    if _supabase is not None:
-        return _supabase
-    if not _SUPABASE_URL or not _SUPABASE_KEY:
+def _get_database_url() -> str:
+    global _DATABASE_URL
+    if _DATABASE_URL is None:
+        _DATABASE_URL = os.getenv("DATABASE_URL")
+    if not _DATABASE_URL:
         raise ValueError(
-            "SUPABASE_URL and SUPABASE_KEY must be set in .env to use database endpoints."
+            "DATABASE_URL must be set in .env to use database."
         )
-    _supabase = create_client(_SUPABASE_URL, _SUPABASE_KEY)
-    return _supabase
+    return _DATABASE_URL
 
 
-def get_supabase() -> Client:
-    """Return Supabase client. Use this in routes so app can start without .env."""
-    return _get_supabase()
+@contextmanager
+def get_connection():
+    """Context manager yielding a DB connection. Commits on success, rolls back on exception."""
+    conn = psycopg2.connect(_get_database_url())
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def execute_query(sql: str, params: Optional[tuple | dict] = None) -> list[dict[str, Any]]:
+    """Run a SELECT; return rows as list of dicts (column name -> value)."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
+
+
+def execute_insert(sql: str, params: Optional[tuple | dict] = None) -> list[dict[str, Any]]:
+    """Run INSERT ... RETURNING *; return inserted row(s) as list of dicts."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
+
+
+def execute_update_delete(sql: str, params: Optional[tuple | dict] = None) -> int:
+    """Run UPDATE or DELETE; return number of rows affected."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.rowcount
+
+
+def execute_update_returning(sql: str, params: Optional[tuple | dict] = None) -> list[dict[str, Any]]:
+    """Run UPDATE ... RETURNING *; return updated row(s) as list of dicts."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]

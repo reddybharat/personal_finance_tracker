@@ -4,8 +4,8 @@ from datetime import date
 
 import streamlit as st
 
-from database import get_supabase
-from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from database import execute_query
+from ui.common import DATABASE_ERROR_MSG, is_db_connection_error
 
 
 def render_summary() -> None:
@@ -14,17 +14,14 @@ def render_summary() -> None:
         today = date.today()
         start = today.replace(day=1).isoformat()
         end = today.isoformat()
-        response = (
-            get_supabase()
-            .table("transactions")
-            .select("amount, category")
-            .gte("transaction_date", start)
-            .lte("transaction_date", end)
-            .execute()
-        )
+        sql = """
+            SELECT amount, category FROM transactions
+            WHERE transaction_date >= %s AND transaction_date <= %s
+        """
+        rows = execute_query(sql, (start, end))
         total = 0.0
         by_category: dict[str, float] = {}
-        for row in response.data or []:
+        for row in rows:
             amt = float(row.get("amount", 0))
             cat = row.get("category") or "Uncategorized"
             total += amt
@@ -39,15 +36,13 @@ def render_summary() -> None:
 
         # Latest 5–7 transactions
         st.subheader("Latest transactions")
-        latest_response = (
-            get_supabase()
-            .table("transactions")
-            .select("id, amount, category, transaction_date, description")
-            .order("transaction_date", desc=True)
-            .limit(7)
-            .execute()
-        )
-        latest_rows = latest_response.data or []
+        latest_sql = """
+            SELECT id, amount, category, transaction_date, description
+            FROM transactions
+            ORDER BY transaction_date DESC
+            LIMIT 7
+        """
+        latest_rows = execute_query(latest_sql)
         if not latest_rows:
             st.caption("No transactions yet.")
         else:
@@ -62,10 +57,10 @@ def render_summary() -> None:
             ]
             st.dataframe(table_data, width="stretch", hide_index=True)
     except ValueError:
-        st.warning("Database not configured. Set SUPABASE_URL and SUPABASE_KEY in .env to see summary.")
+        st.warning("Database not configured. Set DATABASE_URL in .env to see summary.")
     except Exception as e:
         err = str(e)
-        if is_supabase_connection_error(err):
-            st.warning(SUPABASE_ERROR_MSG)
+        if is_db_connection_error(err):
+            st.warning(DATABASE_ERROR_MSG)
         else:
             st.warning(f"Could not load summary: {err[:200]}" + ("…" if len(err) > 200 else ""))

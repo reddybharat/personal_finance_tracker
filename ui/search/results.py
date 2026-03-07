@@ -5,7 +5,7 @@ from datetime import date
 import streamlit as st
 
 from constants import CATEGORIES
-from database import get_supabase
+from database import execute_update_delete, execute_update_returning
 from validations import validate_amount, validate_category, validate_transaction_date
 
 
@@ -26,7 +26,7 @@ def _show_pagination_footer(total_count: int, page_size: int, current_page: int)
 
 
 def _render_edit_form(row: dict) -> None:
-    """Show edit form for one transaction; on submit updates via Supabase and clears state."""
+    """Show edit form for one transaction; on submit updates via DB and clears state."""
     row_id = row.get("id")
     if not row_id:
         return
@@ -74,14 +74,14 @@ def _render_edit_form(row: dict) -> None:
                 st.error(str(e))
                 return
             try:
-                get_supabase().table("transactions").update(
-                    {
-                        "amount": amount,
-                        "category": category.strip(),
-                        "transaction_date": txn_date.isoformat(),
-                        "description": (description or "").strip() or None,
-                    }
-                ).eq("id", row_id).execute()
+                sql = """
+                    UPDATE transactions
+                    SET amount = %s, category = %s, transaction_date = %s, description = %s
+                    WHERE id = %s
+                    RETURNING id
+                """
+                params = (amount, category.strip(), txn_date.isoformat(), (description or "").strip() or None, row_id)
+                execute_update_returning(sql, params)
                 if "editing_transaction" in st.session_state:
                     del st.session_state.editing_transaction
                 st.success("Transaction updated.")
@@ -91,7 +91,7 @@ def _render_edit_form(row: dict) -> None:
 
 
 def _render_delete_confirm(row: dict) -> None:
-    """Show delete confirmation; on confirm deletes via Supabase and clears state."""
+    """Show delete confirmation; on confirm deletes via DB and clears state."""
     row_id = row.get("id")
     if not row_id:
         return
@@ -102,11 +102,14 @@ def _render_delete_confirm(row: dict) -> None:
     with col1:
         if st.button("Confirm delete", type="primary", key="confirm_del"):
             try:
-                get_supabase().table("transactions").delete().eq("id", row_id).execute()
-                if "deleting_transaction" in st.session_state:
-                    del st.session_state.deleting_transaction
-                st.success("Transaction deleted.")
-                st.rerun()
+                rowcount = execute_update_delete("DELETE FROM transactions WHERE id = %s", (row_id,))
+                if rowcount > 0:
+                    if "deleting_transaction" in st.session_state:
+                        del st.session_state.deleting_transaction
+                    st.success("Transaction deleted.")
+                    st.rerun()
+                else:
+                    st.error("Transaction not found or already deleted.")
             except Exception as e:
                 st.error(f"Delete failed: {str(e)[:200]}")
     with col2:
@@ -184,4 +187,3 @@ def render_search_results(rows: list[dict], total_count: int | None, page_size: 
     # Render Prev/Next below the table when we have results
     if total_count and total_count > 0:
         _show_pagination_footer(total_count, page_size, st.session_state.search_page)
-

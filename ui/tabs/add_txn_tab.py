@@ -5,10 +5,10 @@ from datetime import date
 import streamlit as st
 
 from constants import CATEGORIES
-from database import get_supabase
+from database import execute_insert
 from validations import validate_amount, validate_category, validate_transaction_date
 from ui.add.import_csv_section import render_import_csv_section
-from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from ui.common import DATABASE_ERROR_MSG, is_db_connection_error
 
 REQUIRED_LABEL = "<span style='color: red'>*</span>"
 
@@ -58,15 +58,19 @@ def render_add_transaction() -> None:
                 st.error(msg)
         else:
             try:
-                supabase = get_supabase()
-                row = {
-                    "amount": float(amount),
-                    "category": category.strip(),
-                    "transaction_date": transaction_date.isoformat(),
-                    "description": description.strip() or None,
-                }
-                response = supabase.table("transactions").insert(row).execute()
-                if response.data:
+                sql = """
+                    INSERT INTO transactions (amount, category, transaction_date, description)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                """
+                params = (
+                    float(amount),
+                    category.strip(),
+                    transaction_date.isoformat(),
+                    description.strip() or None,
+                )
+                rows = execute_insert(sql, params)
+                if rows:
                     st.success(f"Saved: ₹{amount:,.2f} — {category} on {transaction_date}")
                 else:
                     st.error("Insert failed. Check your database.")
@@ -74,14 +78,8 @@ def render_add_transaction() -> None:
                 st.error(str(e))
             except Exception as e:
                 err = str(e)
-                if is_supabase_connection_error(err):
-                    st.error(SUPABASE_ERROR_MSG)
-                elif "42501" in err or "row-level security policy" in err.lower():
-                    st.error(
-                        "**Row Level Security (RLS) is blocking this.** Add policies in Supabase:\n\n"
-                        "1. Open [Supabase Dashboard](https://supabase.com/dashboard) → your project → **SQL Editor**.\n"
-                        "2. Run the SQL from **`supabase_rls_policies.sql`** in this project (or create policies that allow INSERT/SELECT on `transactions` for your role)."
-                    )
+                if is_db_connection_error(err):
+                    st.error(DATABASE_ERROR_MSG)
                 else:
                     st.error(f"Error: {err}")
 
