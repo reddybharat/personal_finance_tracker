@@ -68,6 +68,6 @@ def run_agent(chat_history: list[dict]) -> str:
 
     logger.info("Found %d final AI messages", len(ai_messages))
     if ai_messages:
-        return ai_messages[-1].content
+        return ai_messages[-1].text
 
     return "I wasn't able to process that request. Could you try rephrasing your question?"

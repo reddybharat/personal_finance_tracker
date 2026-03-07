@@ -13,7 +13,7 @@ load_dotenv()
 logger = get_logger(__name__)
 
 _GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
-_GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+_GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 _llm = None
 
