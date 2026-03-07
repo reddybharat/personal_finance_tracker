@@ -6,11 +6,32 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException
 
-from database import get_supabase
+from database import (
+    execute_insert,
+    execute_query,
+    execute_update_delete,
+    execute_update_returning,
+)
 from schemas import TransactionCreate, TransactionResponse, TransactionUpdate
 from validations import validate_transaction_date
 
 router = APIRouter(prefix="", tags=["transactions"])
+
+_COLS = "id, amount, category, transaction_date, description"
+
+
+def _record_to_response(record: dict) -> TransactionResponse:
+    return TransactionResponse(
+        id=str(record["id"]),
+        amount=float(record["amount"]),
+        category=record["category"],
+        transaction_date=(
+            record["transaction_date"]
+            if isinstance(record["transaction_date"], date)
+            else date.fromisoformat(record["transaction_date"])
+        ),
+        description=record.get("description"),
+    )
 
 
 @router.post("/transactions", response_model=TransactionResponse)
@@ -20,43 +41,31 @@ def create_transaction(payload: TransactionCreate) -> TransactionResponse:
         validate_transaction_date(payload.transaction_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    row = {
-        "amount": float(payload.amount),
-        "category": payload.category.strip(),
-        "transaction_date": payload.transaction_date.isoformat(),
-        "description": payload.description,
-    }
-    response = get_supabase().table("transactions").insert(row).execute()
-    data = response.data
-    if not data:
-        raise HTTPException(status_code=500, detail="Insert failed")
-    return _record_to_response(data[0])
-
-
-def _record_to_response(record: dict) -> TransactionResponse:
-    return TransactionResponse(
-        id=str(record["id"]),
-        amount=float(record["amount"]),
-        category=record["category"],
-        transaction_date=date.fromisoformat(record["transaction_date"]),
-        description=record.get("description"),
+    sql = """
+        INSERT INTO transactions (amount, category, transaction_date, description)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, amount, category, transaction_date, description
+    """
+    params = (
+        float(payload.amount),
+        payload.category.strip(),
+        payload.transaction_date.isoformat(),
+        payload.description,
     )
+    rows = execute_insert(sql, params)
+    if not rows:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return _record_to_response(rows[0])
 
 
 @router.get("/transactions/{transaction_id}", response_model=TransactionResponse)
 def get_transaction(transaction_id: str) -> TransactionResponse:
     """Fetch a single transaction by id."""
-    response = (
-        get_supabase()
-        .table("transactions")
-        .select("id, amount, category, transaction_date, description")
-        .eq("id", transaction_id)
-        .execute()
-    )
-    data = response.data or []
-    if not data:
+    sql = f"SELECT {_COLS} FROM transactions WHERE id = %s"
+    rows = execute_query(sql, (transaction_id,))
+    if not rows:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    return _record_to_response(data[0])
+    return _record_to_response(rows[0])
 
 
 @router.patch("/transactions/{transaction_id}", response_model=TransactionResponse)
@@ -77,45 +86,42 @@ def update_transaction(transaction_id: str, payload: TransactionUpdate) -> Trans
     if "category" in payload_dict and payload_dict["category"] is not None:
         payload_dict["category"] = payload_dict["category"].strip()
 
-    response = (
-        get_supabase()
-        .table("transactions")
-        .update(payload_dict)
-        .eq("id", transaction_id)
-        .execute()
+    set_parts = []
+    params = []
+    for k, v in payload_dict.items():
+        set_parts.append(f"{k} = %s")
+        params.append(v)
+    params.append(transaction_id)
+    sql = (
+        "UPDATE transactions SET "
+        + ", ".join(set_parts)
+        + " WHERE id = %s RETURNING id, amount, category, transaction_date, description"
     )
-    data = response.data or []
-    if not data:
+    rows = execute_update_returning(sql, tuple(params))
+    if not rows:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    return _record_to_response(data[0])
+    return _record_to_response(rows[0])
 
 
 @router.delete("/transactions/{transaction_id}", status_code=204)
 def delete_transaction(transaction_id: str) -> None:
     """Delete a transaction by id."""
-    response = (
-        get_supabase()
-        .table("transactions")
-        .delete()
-        .eq("id", transaction_id)
-        .execute()
-    )
-    # Supabase delete returns the deleted row(s); if nothing was deleted, we treat as 404
-    if not (response.data and len(response.data) > 0):
+    sql = "DELETE FROM transactions WHERE id = %s"
+    rowcount = execute_update_delete(sql, (transaction_id,))
+    if rowcount == 0:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])
 def list_transactions() -> list[TransactionResponse]:
     """Fetch the last 20 transactions ordered by transaction_date descending."""
-    response = (
-        get_supabase().table("transactions")
-        .select("id, amount, category, transaction_date, description")
-        .order("transaction_date", desc=True)
-        .limit(20)
-        .execute()
-    )
-    return [_record_to_response(record) for record in (response.data or [])]
+    sql = f"""
+        SELECT {_COLS} FROM transactions
+        ORDER BY transaction_date DESC
+        LIMIT 20
+    """
+    rows = execute_query(sql)
+    return [_record_to_response(r) for r in rows]
 
 
 @router.get("/summary")
@@ -129,17 +135,15 @@ def get_summary() -> dict:
     start = today.replace(day=1).isoformat()
     end = today.isoformat()
 
-    response = (
-        get_supabase().table("transactions")
-        .select("amount, category")
-        .gte("transaction_date", start)
-        .lte("transaction_date", end)
-        .execute()
-    )
+    sql = """
+        SELECT amount, category FROM transactions
+        WHERE transaction_date >= %s AND transaction_date <= %s
+    """
+    rows = execute_query(sql, (start, end))
 
     total = 0.0
     by_category: dict[str, float] = {}
-    for row in response.data or []:
+    for row in rows:
         amt = float(row.get("amount", 0))
         cat = row.get("category") or "Uncategorized"
         total += amt

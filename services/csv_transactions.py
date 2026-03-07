@@ -8,7 +8,7 @@ import io
 from datetime import date
 from typing import Optional
 
-from database import get_supabase
+from database import execute_query, get_connection
 from schemas import TransactionCreate
 
 # CSV column names (used for export, template, and import)
@@ -19,18 +19,22 @@ def export_transactions_csv(
     start_date: date, end_date: date, category: Optional[str]
 ) -> str:
     """Return CSV string for all transactions matching the given filters."""
-    query = (
-        get_supabase()
-        .table("transactions")
-        .select("transaction_date, category, amount, description")
-        .gte("transaction_date", start_date.isoformat())
-        .lte("transaction_date", end_date.isoformat())
-        .order("transaction_date", desc=False)
-    )
+    sql = """
+        SELECT transaction_date, category, amount, description
+        FROM transactions
+        WHERE transaction_date >= %s AND transaction_date <= %s
+        ORDER BY transaction_date ASC
+    """
+    params: tuple = (start_date.isoformat(), end_date.isoformat())
     if category and category != "All":
-        query = query.eq("category", category)
-    response = query.execute()
-    rows = response.data or []
+        sql = """
+            SELECT transaction_date, category, amount, description
+            FROM transactions
+            WHERE transaction_date >= %s AND transaction_date <= %s AND category = %s
+            ORDER BY transaction_date ASC
+        """
+        params = (start_date.isoformat(), end_date.isoformat(), category)
+    rows = execute_query(sql, params)
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
@@ -101,7 +105,7 @@ def import_transactions_from_csv(content: bytes) -> tuple[int, list[str]]:
         ]
 
     errors: list[str] = []
-    rows_to_insert: list[dict] = []
+    rows_to_insert: list[tuple] = []
 
     for idx, row in enumerate(reader, start=2):
         try:
@@ -140,21 +144,26 @@ def import_transactions_from_csv(content: bytes) -> tuple[int, list[str]]:
                 description=raw_description,
             )
             rows_to_insert.append(
-                {
-                    "amount": float(tx.amount),
-                    "category": tx.category.strip(),
-                    "transaction_date": tx.transaction_date.isoformat(),
-                    "description": tx.description,
-                }
+                (
+                    float(tx.amount),
+                    tx.category.strip(),
+                    tx.transaction_date.isoformat(),
+                    tx.description,
+                )
             )
         except Exception as e:
             errors.append(f"Row {idx}: {e}")
 
     inserted_count = 0
     if rows_to_insert:
-        response = (
-            get_supabase().table("transactions").insert(rows_to_insert).execute()
-        )
-        inserted_count = len(response.data or [])
+        sql = """
+            INSERT INTO transactions (amount, category, transaction_date, description)
+            VALUES (%s, %s, %s, %s)
+        """
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(sql, rows_to_insert)
+        # executemany commits via get_connection; all rows inserted on success
+        inserted_count = len(rows_to_insert)
 
     return inserted_count, errors

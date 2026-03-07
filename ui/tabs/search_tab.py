@@ -4,8 +4,8 @@ from datetime import date
 
 import streamlit as st
 
-from database import get_supabase
-from ui.common import SUPABASE_ERROR_MSG, is_supabase_connection_error
+from database import execute_query
+from ui.common import DATABASE_ERROR_MSG, is_db_connection_error
 from ui.search.filters import render_search_filters
 from ui.search.results import render_search_results
 
@@ -35,43 +35,61 @@ def render_search() -> None:
             if run_query:
                 page = st.session_state.search_page
                 offset_start = (page - 1) * page_size
-                offset_end = offset_start + page_size - 1
 
                 sort_col = st.session_state.search_sort_column
                 sort_desc = st.session_state.search_sort_desc
-                query = (
-                    get_supabase()
-                    .table("transactions")
-                    .select("id, amount, category, transaction_date, description", count="exact")
-                    .gte("transaction_date", start_date.isoformat())
-                    .lte("transaction_date", end_date.isoformat())
-                    .order(sort_col, desc=sort_desc)
-                    .range(offset_start, offset_end)
-                )
+                # Safe: sort_col is one of ("transaction_date", "amount") from filters
+                order_dir = "DESC" if sort_desc else "ASC"
+                order_clause = f"ORDER BY {sort_col} {order_dir}"
+
+                cols = "id, amount, category, transaction_date, description"
                 if category and category != "All":
-                    query = query.eq("category", category)
-                response = query.execute()
-                rows = response.data or []
-                total_count = getattr(response, "count", None)
-                if total_count is None and rows is not None:
-                    total_count = len(rows)
+                    count_sql = """
+                        SELECT COUNT(*) AS n FROM transactions
+                        WHERE transaction_date >= %s AND transaction_date <= %s AND category = %s
+                    """
+                    count_params: tuple = (start_date.isoformat(), end_date.isoformat(), category)
+                    data_sql = f"""
+                        SELECT {cols} FROM transactions
+                        WHERE transaction_date >= %s AND transaction_date <= %s AND category = %s
+                        {order_clause}
+                        LIMIT %s OFFSET %s
+                    """
+                    data_params = (start_date.isoformat(), end_date.isoformat(), category, page_size, offset_start)
+                else:
+                    count_sql = """
+                        SELECT COUNT(*) AS n FROM transactions
+                        WHERE transaction_date >= %s AND transaction_date <= %s
+                    """
+                    count_params = (start_date.isoformat(), end_date.isoformat())
+                    data_sql = f"""
+                        SELECT {cols} FROM transactions
+                        WHERE transaction_date >= %s AND transaction_date <= %s
+                        {order_clause}
+                        LIMIT %s OFFSET %s
+                    """
+                    data_params = (start_date.isoformat(), end_date.isoformat(), page_size, offset_start)
+
+                count_rows = execute_query(count_sql, count_params)
+                total_count = int(count_rows[0]["n"]) if count_rows else 0
                 st.session_state.search_results_total = total_count
 
-                if total_count is not None and total_count == 0:
+                rows = execute_query(data_sql, data_params)
+
+                if total_count == 0:
                     st.info("No transactions found for the selected filters.")
                     st.session_state.search_results_total = 0
                 elif not rows:
                     st.info("No transactions on this page.")
                 else:
-                    # Clamp page if we're past last page (e.g. user changed "Per page" then clicked Next)
                     render_search_results(rows, total_count, page_size)
             elif total_from_last is not None and total_from_last == 0:
                 st.info("No transactions found for the selected filters.")
     except ValueError:
-        st.warning("Database not configured. Set SUPABASE_URL and SUPABASE_KEY in .env to search.")
+        st.warning("Database not configured. Set DATABASE_URL in .env to search.")
     except Exception as e:
         err = str(e)
-        if is_supabase_connection_error(err):
-            st.warning(SUPABASE_ERROR_MSG)
+        if is_db_connection_error(err):
+            st.warning(DATABASE_ERROR_MSG)
         else:
             st.warning(f"Could not search: {err[:200]}" + ("…" if len(err) > 200 else ""))

@@ -8,7 +8,7 @@ A simple personal finance tracker. All amounts are in **INR (₹)**. Backend is 
 - **Streamlit** — Tabbed UI: **Summary** (current month + latest transactions), **Add** (form + **Import from CSV**), **Search** (filter by date range/category, pagination, **Export to CSV**, edit and delete per transaction)
 - **Import from CSV** — In the **Add** tab: download a template (correct headers + example rows), upload a CSV, and bulk-import transactions. Columns: `transaction_date` (YYYY-MM-DD), `category`, `amount`, `description` (optional). Category must be one of the fixed list; validation and row-level errors are shown.
 - **Export to CSV** — In the **Search** tab: after you run a search, an **Export to CSV** button appears next to the Search button and downloads all transactions matching the current filters (date range and category).
-- **Supabase** — Stores transactions; optional Row Level Security (RLS)
+- **Database** — Connects directly to PostgreSQL via `DATABASE_URL` (no RLS required for the app)
 - **Fixed categories** — Transactions use one of: Grocery, Dining, Transportation, Utilities, Entertainment, Health, Housing, Personal, Investments, Misc (enforced in UI and API)
 - **Validations** — Shared rules in `validations.py`: amount must be > 0, category required, transaction date cannot be in the future (enforced in UI and API)
 
@@ -51,15 +51,10 @@ pip install -r requirements.txt
 Create a `.env` in the project root:
 
 ```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-anon-key
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.xxxxx.supabase.co:5432/postgres
 ```
 
-Get these from Supabase Dashboard → Project Settings → API.
-
-### 4. Row Level Security (optional)
-
-If your table has RLS enabled, run the policies in **Supabase Dashboard → SQL Editor** using `supabase_rls_policies.sql` so the app can insert, select, update, and delete from `transactions`.
+Get the connection string from Supabase Dashboard → Project Settings → Database (Connection string, URI). The app uses this to run SQL directly; `SUPABASE_URL` and `SUPABASE_KEY` are not required.
 
 ## Running the app
 
